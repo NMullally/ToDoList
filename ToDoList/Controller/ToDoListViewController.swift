@@ -7,10 +7,20 @@
 //
 
 import UIKit
+import CoreData
 
 class ToDoListViewController: UITableViewController {
 
     var itemArray : [ChecklistItem] = [ChecklistItem]()
+    var selectedCatagory : Catagory?
+    {
+        didSet
+        {
+            loadItems()
+        }
+    }
+    
+    lazy var context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
     
     let defaults = UserDefaults.standard
     
@@ -20,13 +30,6 @@ class ToDoListViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view, typically from a nib.
-        
-        itemArray +=    ([ChecklistItem("First"),
-                         ChecklistItem("Second"),
-                         ChecklistItem("Third")])
-        
-        loadItems()
-        
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -61,7 +64,11 @@ class ToDoListViewController: UITableViewController {
         
         let action = UIAlertAction(title: "Add Item", style: .default) { (action) in
             
-            let newItem = ChecklistItem(textField.text!)
+            let newItem = ChecklistItem(context: self.context)
+            newItem.title = textField.text!
+            newItem.checked = false
+            newItem.parentCatagory = self.selectedCatagory
+            
             self.itemArray.append(newItem)
             
             self.saveItems()
@@ -80,11 +87,9 @@ class ToDoListViewController: UITableViewController {
     
     func saveItems()
     {
-        let encoder = PropertyListEncoder()
         do
         {
-            let data = try encoder.encode(self.itemArray)
-            try data.write(to: self.dataFilePath!)
+            try context.save()
         }
         catch
         {
@@ -94,19 +99,64 @@ class ToDoListViewController: UITableViewController {
         self.tableView.reloadData()
     }
     
-    func loadItems()
+    func loadItems(with request: NSFetchRequest<ChecklistItem> = ChecklistItem.fetchRequest())
     {
         do
         {
-            let data = try Data(contentsOf: dataFilePath!)
-            let decoder = PropertyListDecoder()
+            let catogoryPredicate = NSPredicate(format: "parentCatagory.name MATCHES %@", selectedCatagory!.name!)
             
-            itemArray = try decoder.decode([ChecklistItem].self, from: data)
-        }
-        catch{
+            if let predicate = request.predicate
+            {
+                request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [catogoryPredicate, predicate])
+            }
+            else
+            {
+                request.predicate = catogoryPredicate
+            }
             
+            itemArray = try context.fetch(request)
         }
+        catch
+        {
+            print(error.localizedDescription)
+        }
+        
+        tableView.reloadData()
+    }
+}
+
+//MARK: - Search bar
+extension ToDoListViewController : UISearchBarDelegate
+{
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar)
+    {
+        let request : NSFetchRequest<ChecklistItem> = ChecklistItem.fetchRequest()
+        
+        let predicate = NSPredicate(format: "title CONSTAINS[cd] %@",  searchBar.text!)
+        
+        request.predicate = predicate
+        
+        let sortDescriptor = NSSortDescriptor(key: "title", ascending: true)
+        request.sortDescriptors = [sortDescriptor]
+        
+        loadItems(with: request)
     }
     
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        if searchBar.text?.count == 0
+        {
+            loadItems()
+            
+            DispatchQueue.main.async {
+                // means its not longer being edited // shouldnt be selected
+                searchBar.resignFirstResponder()
+            }
+        }
+        
+        
+    }
+    
+    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+    }
 }
 
